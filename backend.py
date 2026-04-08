@@ -4,7 +4,9 @@ from langgraph.graph import StateGraph,START,END
 from typing import TypedDict,Literal,Annotated
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage,HumanMessage
-from langgraph.checkpoint.memory import MemorySaver
+import psycopg
+from langgraph.checkpoint.postgres import PostgresSaver
+import os
 
 load_dotenv()
 
@@ -28,7 +30,12 @@ def chat_node(state:chatState)->chatState:
 
 graph=StateGraph(chatState)
 
-checkpoint=MemorySaver()
+conn = psycopg.connect(os.getenv("DB_URI"))
+conn.autocommit = True
+checkpoint = PostgresSaver(conn)
+
+checkpoint.setup()
+print(type(checkpoint))
 
 graph.add_node("chat_node",chat_node)
 graph.add_edge(START,'chat_node')
