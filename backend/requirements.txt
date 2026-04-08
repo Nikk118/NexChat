@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+langchain
+langchain-core
+langgraph
+huggingface_hub
+langchain-huggingface
+psycopg[binary]
+python-dotenv
+bcrypt
