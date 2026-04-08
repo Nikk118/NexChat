@@ -2,9 +2,7 @@ fastapi
 uvicorn
 langchain
 langchain-core
-langgraph
 langgraph[postgres]
-huggingface_hub
 langchain-huggingface
 psycopg[binary]
 python-dotenv
