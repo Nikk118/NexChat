@@ -3,13 +3,10 @@ import streamlit as st
 import uuid
 import os 
 # CONFIG
-def get_backend_url():
-    try:
-        return st.secrets["BACKEND_URL"]
-    except Exception:
-        return os.getenv("BACKEND_URL", "http://localhost:8000")
 
-BACKEND_URL = get_backend_url()
+
+# BACKEND_URL = "http://localhost:8000"
+BACKEND_URL="https://nexchat-backend-6j4o.onrender.com"
 
 # UTILS
 def genrate_thread_id():
