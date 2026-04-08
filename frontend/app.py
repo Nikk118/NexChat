@@ -3,7 +3,9 @@ import streamlit as st
 import uuid
 
 # CONFIG
-BACKEND_URL = "http://localhost:8000"
+import streamlit as st
+
+BACKEND_URL = st.secrets.get("BACKEND_URL", "http://localhost:8000")
 
 # UTILS
 def genrate_thread_id():
