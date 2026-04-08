@@ -4,13 +4,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DB_URI = os.getenv("DB_URI")
+def get_db_uri() -> str:
+    # Render and most PaaS providers expose DATABASE_URL.
+    db_uri = os.getenv("DATABASE_URL") or os.getenv("DB_URI")
+    if not db_uri:
+        raise RuntimeError("Missing database URL. Set DATABASE_URL (preferred) or DB_URI.")
+    return db_uri
 
-def get_conn():
-    return psycopg.connect(DB_URI)
+def get_conn(*, autocommit: bool = False):
+    conn = psycopg.connect(get_db_uri())
+    conn.autocommit = autocommit
+    return conn
 
 
-# 🔹 Chat functions
+# Chat functions
 def create_chat(thread_id, user_id=None):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -37,3 +44,5 @@ def update_title(thread_id, title):
                 "UPDATE chats SET title=%s WHERE thread_id=%s",
                 (title, thread_id)
             )
+
+

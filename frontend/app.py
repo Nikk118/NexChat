@@ -1,11 +1,15 @@
 import requests
 import streamlit as st
 import uuid
-
+import os 
 # CONFIG
-import streamlit as st
+def get_backend_url():
+    try:
+        return st.secrets["BACKEND_URL"]
+    except Exception:
+        return os.getenv("BACKEND_URL", "http://localhost:8000")
 
-BACKEND_URL = st.secrets.get("BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = get_backend_url()
 
 # UTILS
 def genrate_thread_id():
