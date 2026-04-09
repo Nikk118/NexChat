@@ -1,4 +1,3 @@
-import os
 import uuid
 
 import requests
@@ -6,10 +5,8 @@ import streamlit as st
 
 
 # CONFIG
-
-
-
 BACKEND_URL = "https://nexchat-backend-6j4o.onrender.com"
+# BACKEND_URL = "http://localhost:8000"
 
 
 # UTILS
@@ -27,9 +24,9 @@ def fetch_chat_history(thread_id: str):
     try:
         response = requests.get(f"{BACKEND_URL}/chat-history/{thread_id}", timeout=30)
         if response.status_code == 200:
-            return response.json().get("messages", [])
-    except Exception:
-        pass
+            return response.json().get("messages")
+    except Exception as e:
+        st.warning(f"Could not load chat history: {e}")
     return []
 
 
@@ -73,18 +70,7 @@ def reset_chat():
     st.session_state["message_history"] = []
     add_local_thread(thread_id)
     save_local_history(thread_id)
-
-    if st.session_state["user"]:
-        try:
-            requests.post(
-                f"{BACKEND_URL}/create-chat",
-                json={"thread_id": thread_id, "user_id": st.session_state["user"]},
-                timeout=30,
-            )
-        except Exception:
-            pass
-
-    st.rerun()
+    st.rerun()  # FIX: was accidentally orphaned outside the function body
 
 
 # SESSION INIT
@@ -115,8 +101,6 @@ save_local_history(st.session_state["thread_id"])
 
 # SIDEBAR
 st.sidebar.title("NexChat")
-
-
 
 if not st.session_state["user"]:
     if st.sidebar.button("Login / Signup", use_container_width=True):
@@ -179,8 +163,18 @@ if not st.session_state["user"]:
                 st.rerun()
 else:
     if st.sidebar.button("Sign Out", use_container_width=True):
+    # clear user
         st.session_state["user"] = None
         clear_persisted_user_session()
+
+        # 🔥 clear all chats
+        st.session_state["chat_threads"] = []
+        st.session_state["thread_histories"] = {}
+        st.session_state["message_history"] = []
+
+        # reset thread
+        st.session_state["thread_id"] = genrate_thread_id()
+
         st.toast("Logged out")
         st.rerun()
 
@@ -215,12 +209,19 @@ else:
 conversation_panel = st.sidebar.container(height=420, border=False)
 for thread in sidebar_threads:
     if conversation_panel.button(thread["title"], key=f"thread_{thread['id']}", use_container_width=True):
+        # Save current thread before switching
+        save_local_history(st.session_state["thread_id"])
+
         st.session_state["thread_id"] = thread["id"]
+
+        # FIX: fetch from backend for logged-in users (local store won't have their history),
+        # fall back to local for guests or if backend returns nothing
         if st.session_state["user"]:
             history = fetch_chat_history(thread["id"])
             st.session_state["message_history"] = history if history else load_local_history(thread["id"])
         else:
             st.session_state["message_history"] = load_local_history(thread["id"])
+
         st.rerun()
 
 if not st.session_state["user"]:
@@ -291,9 +292,20 @@ if user_input:
             timeout=60,
         )
 
-        ai_message = response.json().get("response", "")
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                ai_message = data.get("response", "")
+            except Exception as e:
+                st.error(f"JSON error: {e}")
+                st.text(response.text)
+                ai_message = "Error parsing response"
+        else:
+            st.error(f"API Error: {response.status_code}")
+            st.text(response.text)
+            ai_message = "Backend error"
+
         st.markdown(ai_message)
 
     st.session_state["message_history"].append({"role": "assistant", "content": ai_message})
     save_local_history(st.session_state["thread_id"])
-

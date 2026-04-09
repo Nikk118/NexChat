@@ -3,9 +3,9 @@ from pydantic import BaseModel
 from chatbot import chatbot
 from langchain_core.messages import HumanMessage
 from fastapi.middleware.cors import CORSMiddleware
-
 from auth import create_user, verify_user
-from db import get_chats, create_chat, update_title
+from db import get_chats, create_chat as db_create_chat, update_title
+from fastapi import Request
 
 app = FastAPI()
 
@@ -39,8 +39,8 @@ class UpdateTitleRequest(BaseModel):
     title: str
 
 
-@app.get("/")
-def home():
+@app.api_route("/", methods=["GET", "HEAD"])
+def home(request: Request):
     return {"message": "API is running"}
 
 
@@ -76,10 +76,26 @@ def chat_history(thread_id: str):
     history = []
     for msg in messages:
         msg_type = getattr(msg, "type", "")
-        role = "user" if msg_type == "human" else "assistant"
+
+        # FIX: skip non-conversational messages (tool calls, system, etc.)
+        if msg_type not in ("human", "ai"):
+            continue
+
         content = getattr(msg, "content", "")
-        if not isinstance(content, str):
+
+        # FIX: handle list content (e.g. multi-part AI messages with tool use blocks)
+        if isinstance(content, list):
+            content = " ".join(
+                part.get("text", "") for part in content if isinstance(part, dict)
+            )
+        elif not isinstance(content, str):
             content = str(content)
+
+        # FIX: skip messages that have no meaningful text (e.g. tool-call-only AI turns)
+        if not content.strip():
+            continue
+
+        role = "user" if msg_type == "human" else "assistant"
         history.append({"role": role, "content": content})
 
     return {"messages": history}
@@ -92,7 +108,8 @@ def chats(user_id: str):
 
 @app.post("/create-chat")
 def create_chat_api(req: CreateChatRequest):
-    create_chat(req.thread_id, req.user_id)
+    # FIX: renamed import to db_create_chat to avoid name collision
+    db_create_chat(req.thread_id, req.user_id)
     return {"status": "ok"}
 
 
