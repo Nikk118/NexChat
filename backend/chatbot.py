@@ -3,7 +3,7 @@ import threading
 from dotenv import load_dotenv
 from typing import TypedDict, Annotated
 from importlib import import_module
-
+from langsmith import traceable
 import psycopg
 from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
 from langchain_core.messages import BaseMessage
@@ -26,7 +26,12 @@ llm = HuggingFaceEndpoint(
     max_new_tokens=512,
 )
 
-llm = ChatHuggingFace(llm=llm)
+llm = ChatHuggingFace(llm=llm).with_config({
+    "run_name":"LLm model",
+    "metadata":{
+        "model":"llma-3.1-8B-instruct"
+    }
+})
 
 
 # STATE
@@ -94,7 +99,7 @@ def _is_psycopg_error(exc: Exception) -> bool:
         current = current.__cause__ or current.__context__
     return False
 
-
+@traceable(name="NexChat Request")
 def invoke_chatbot(payload, config, retries: int = 1):
     for attempt in range(retries + 1):
         bot = _ensure_chatbot()
