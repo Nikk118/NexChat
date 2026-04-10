@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from chatbot import chatbot
+from chatbot import invoke_chatbot, get_chatbot_state
 from langchain_core.messages import HumanMessage
 from fastapi.middleware.cors import CORSMiddleware
 from auth import create_user, verify_user
@@ -58,7 +58,7 @@ def login(req: AuthRequest):
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    result = chatbot.invoke(
+    result = invoke_chatbot(
         {"messages": [HumanMessage(content=req.message)]},
         config={"configurable": {"thread_id": req.thread_id}},
     )
@@ -69,7 +69,7 @@ def chat(req: ChatRequest):
 
 @app.get("/chat-history/{thread_id}")
 def chat_history(thread_id: str):
-    state = chatbot.get_state(config={"configurable": {"thread_id": thread_id}})
+    state = get_chatbot_state(config={"configurable": {"thread_id": thread_id}})
     values = getattr(state, "values", {}) or {}
     messages = values.get("messages", [])
 
