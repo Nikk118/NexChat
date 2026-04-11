@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from auth import create_user, verify_user
 from db import get_chats, create_chat as db_create_chat, update_title
 from fastapi import Request
-
+from langsmith.run_helpers import trace
 app = FastAPI()
 
 # CORS
@@ -58,14 +58,25 @@ def login(req: AuthRequest):
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    result = invoke_chatbot(
-        {"messages": [HumanMessage(content=req.message)]},
-        config={"configurable": {"thread_id": req.thread_id}},
-    )
 
-    last_message = result["messages"][-1]
-    return {"response": last_message.content}
+    with trace(
+        name="NexChat Request",
+        metadata={"thread_id": req.thread_id},
+        tags=[f"thread:{req.thread_id}"],
+        inputs={"message": req.message},
+    ) as run:
+        result = invoke_chatbot(
+            {"messages": [HumanMessage(content=req.message)]},
+            config={
+                "configurable": {"thread_id": req.thread_id},
+                "run_name": "chat_turn",
+            },
+            thread_id=req.thread_id,
+        )
 
+        output = result["messages"][-1].content
+        run.end(outputs={"response": output})
+    return {"response": output}
 
 @app.get("/chat-history/{thread_id}")
 def chat_history(thread_id: str):

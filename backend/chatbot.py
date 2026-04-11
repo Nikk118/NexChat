@@ -100,11 +100,12 @@ def _is_psycopg_error(exc: Exception) -> bool:
     return False
 
 @traceable(name="NexChat Request")
-def invoke_chatbot(payload, config, retries: int = 1):
+def invoke_chatbot(payload, config,thread_id: str, retries: int = 1):
     for attempt in range(retries + 1):
         bot = _ensure_chatbot()
         try:
-            return bot.invoke(payload, config=config)
+            return bot.invoke(payload,
+                config=config)
         except Exception as exc:
             if attempt < retries and _is_psycopg_error(exc):
                 _reset_chatbot()
