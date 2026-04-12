@@ -154,6 +154,8 @@ if not st.session_state["user"]:
                         st.session_state["user"] = str(user_id)
                         persist_user_session(str(user_id))
                         st.session_state["show_login"] = False
+                        st.session_state["message_history"] = []
+                        st.session_state["thread_id"] = genrate_thread_id()
                         st.toast("Logged in")
                         st.rerun()
                     else:
