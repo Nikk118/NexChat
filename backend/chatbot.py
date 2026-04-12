@@ -5,6 +5,11 @@ from typing import TypedDict, Annotated
 from importlib import import_module
 from langsmith import traceable
 import psycopg
+from PyPDF2 import PdfReader
+from langchain_core.messages import SystemMessage
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_classic.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.messages import BaseMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
@@ -34,6 +39,78 @@ llm = ChatMistralAI(
         "model": "mistral-small"
     }
 })
+VECTOR_PATH = "vector_store"
+os.makedirs(VECTOR_PATH, exist_ok=True)
+VECTOR_DB=None
+CURRENT_THREAD_ID = None
+
+def extract_text_from_pdf(file_path:str)->str:
+    reader=PdfReader(file_path)
+    text=""
+    for page in reader.pages:
+        text+=page.extract_text() or ""
+    return text
+
+embeddings = HuggingFaceEmbeddings(
+        model_name="all-MiniLM-L6-v2"
+    )
+
+def handle_pdf_upload(file_path: str):
+    global VECTOR_DB
+
+    print("📄 Processing PDF...")
+
+    # if embeddings already exist → load instead of recompute
+    if os.path.exists(os.path.join(VECTOR_PATH, "index.faiss")):
+        print("⚡ Loading existing embeddings...")
+
+        vectorstore = FAISS.load_local(
+            VECTOR_PATH,
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
+
+        VECTOR_DB = vectorstore.as_retriever(search_kwargs={"k": 3})
+
+    else:
+        VECTOR_DB = process_pdf(file_path)
+
+    print("✅ PDF ready")
+
+
+def process_pdf(file_path: str):
+    text = extract_text_from_pdf(file_path)
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=100
+    )
+
+    chunks = splitter.create_documents([text])
+
+    vectorstore = FAISS.from_documents(chunks, embeddings)
+
+    # 🔥 SAVE EMBEDDINGS
+    vectorstore.save_local(VECTOR_PATH)
+
+    return vectorstore.as_retriever(search_kwargs={"k": 3})
+@tool
+def pdf_rag(query: str) -> str:
+    """Use this tool ONLY when the user asks questions about the uploaded PDF document, 
+its content, summary, or specific details. 
+
+Do NOT use this tool for general knowledge, casual conversation, or questions that 
+can be answered without referring to the uploaded document."""
+    global VECTOR_DB
+
+    if VECTOR_DB is None:
+        return "No PDF uploaded."
+
+    print(f"📄 RAG tool: {query}")
+
+    docs = VECTOR_DB.invoke(query)
+
+    return "\n".join([doc.page_content for doc in docs])
 
 @tool
 def calculator(expression: str) -> str:
@@ -65,11 +142,9 @@ def weather(city: str) -> str:
     except Exception as e:
         return "Unable to fetch weather right now"
 
-tools=[calculator,duckduckgo_search,weather]
+BASE_TOOLS = [calculator, duckduckgo_search, weather]
 
-llm=llm.bind_tools(tools)
-
-tool_node=ToolNode(tools)
+tool_node = ToolNode(BASE_TOOLS)
 
 
 # STATE
@@ -78,20 +153,56 @@ class chatState(TypedDict):
 
 
 # NODE (keep simple)
+
+from langchain_core.messages import AIMessage
+
 def chat_node(state: chatState) -> chatState:
     messages = state["messages"]
-    response = llm.invoke(messages)  # LangGraph handles stream separately
-    if hasattr(response, "tool_calls") and response.tool_calls:
-        print("🛠️ Tool used:")
-        for tool in response.tool_calls:
-            print(f"Tool Name: {tool['name']}")
-            print(f"Arguments: {tool['args']}")
-    else:
-        print("💬 No tool used")
-    # print(response)
+    user_msg = messages[-1].content.lower()
+
+    global VECTOR_DB
+
+    # 🔥 KEYWORDS for document queries
+    doc_keywords = [
+        "pdf", "document", "file", "page",
+        "summary", "summarize", "content", "explain"
+    ]
+
+    use_rag = VECTOR_DB is not None and any(k in user_msg for k in doc_keywords)
+
+    # 🔥 FAST RAG PATH (no LLM decision)
+    if use_rag:
+        print("⚡ Direct RAG (fast)")
+
+        docs = VECTOR_DB.invoke(user_msg)
+
+        if not docs:
+            return {"messages": [AIMessage(content="No relevant info found in document")]}
+
+        return {
+            "messages": [
+                AIMessage(content="📄 From document:\n" + "\n".join([d.page_content for d in docs]))
+            ]
+        }
+
+    # 🔥 NORMAL CHAT (FAST)
+    print("⚡ Normal chat")
+
+    dynamic_llm = llm.bind_tools(BASE_TOOLS)
+
+    system_prompt = """
+You are a helpful AI assistant.
+
+- Answer general questions normally.
+- Use tools only when necessary.
+- Do NOT use any document tool unless explicitly needed.
+"""
+
+    messages = [SystemMessage(content=system_prompt)] + messages
+
+    response = dynamic_llm.invoke(messages)
+
     return {"messages": [response]}
-
-
 # GRAPH
 graph = StateGraph(chatState)
 graph.add_node("chat_node", chat_node)

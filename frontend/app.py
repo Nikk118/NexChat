@@ -6,8 +6,8 @@ import streamlit as st
 
 
 # CONFIG
-# BACKEND_URL = "https://nexchat-backend-6j4o.onrender.com"
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = "https://nexchat-backend-6j4o.onrender.com"
+# BACKEND_URL = "http://localhost:8000"
 
 
 # UTILS
@@ -102,6 +102,8 @@ save_local_history(st.session_state["thread_id"])
 
 # SIDEBAR
 st.sidebar.title("NexChat")
+if not st.session_state["user"]:
+    st.sidebar.info("Login to save chats to database")
 
 if not st.session_state["user"]:
     if st.sidebar.button("Login / Signup", use_container_width=True):
@@ -186,6 +188,34 @@ st.sidebar.divider()
 if st.sidebar.button("New Chat", use_container_width=True):
     reset_chat()
 
+st.sidebar.markdown("### 📄 Upload PDF")
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload a PDF",
+    type=["pdf"],
+    label_visibility="collapsed"
+)
+
+if uploaded_file:
+    with st.sidebar.spinner("Processing PDF..."):
+        files = {
+            "file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")
+        }
+
+        try:
+            res = requests.post(
+                f"{BACKEND_URL}/upload-pdf",
+                files=files,
+                timeout=60
+            )
+
+            if res.status_code == 200:
+                st.sidebar.success("✅ PDF ready for chat")
+            else:
+                st.sidebar.error("❌ Upload failed")
+
+        except Exception as e:
+            st.sidebar.error(f"Error: {e}")
 
 # CHAT LIST
 st.sidebar.header("My Conversations")
@@ -227,8 +257,7 @@ for thread in sidebar_threads:
 
         st.rerun()
 
-if not st.session_state["user"]:
-    st.sidebar.info("Login to save chats to database")
+
 
 
 # EMPTY STATE
@@ -262,9 +291,13 @@ user_input = st.chat_input("Type here")
 if user_input:
     add_local_thread(st.session_state["thread_id"])
 
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
     if len(st.session_state["message_history"]) == 0:
         title = make_chat_title(user_input)
         set_local_thread_title(st.session_state["thread_id"], title)
+
 
         if st.session_state["user"]:
             try:
@@ -284,8 +317,7 @@ if user_input:
     st.session_state["message_history"].append({"role": "user", "content": user_input})
     save_local_history(st.session_state["thread_id"])
 
-    with st.chat_message("user"):
-        st.markdown(user_input)
+    
 
     with st.chat_message("assistant"):
         ai_message = ""

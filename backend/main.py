@@ -9,6 +9,10 @@ from db import get_chats, create_chat as db_create_chat, update_title
 from fastapi import Request
 from langsmith.run_helpers import trace
 import json
+from fastapi import UploadFile, File
+import shutil
+import os
+from chatbot import handle_pdf_upload
 
 app = FastAPI()
 
@@ -21,6 +25,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 class ChatRequest(BaseModel):
     message: str
@@ -46,6 +52,27 @@ class UpdateTitleRequest(BaseModel):
 def home(request: Request):
     return {"message": "API is running"}
 
+
+@app.post("/upload-pdf")
+async def upload_pdf(file: UploadFile = File(...)):
+    try:
+        # validate file
+        if not file.filename.endswith(".pdf"):
+            return {"error": "Only PDF files are allowed"}
+
+        file_path = os.path.join(UPLOAD_DIR, file.filename)
+
+        # save file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # process for RAG
+        handle_pdf_upload(file_path)
+
+        return {"status": "PDF uploaded successfully"}
+
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
