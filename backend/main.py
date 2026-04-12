@@ -47,6 +47,36 @@ def home(request: Request):
     return {"message": "API is running"}
 
 
+@app.post("/chat")
+async def chat(req: ChatRequest):
+
+    def generate():
+        try:
+            for chunk, metadata in stream_chatbot(
+                {"messages": [HumanMessage(content=req.message)]},
+                config={"configurable": {"thread_id": req.thread_id}},
+                thread_id=req.thread_id,
+            ):
+                token = getattr(chunk, "content", "")
+                if token:
+                    # ✅ Plain streaming (Render-friendly)
+                    yield token
+
+        except Exception as exc:
+            yield f"\n[ERROR]: {str(exc)}"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/plain",  # ✅ FIXED
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ===== OTHER ROUTES (UNCHANGED) =====
+
 @app.post("/signup")
 def signup(req: AuthRequest):
     user_id = create_user(req.email, req.password)
@@ -58,45 +88,7 @@ def login(req: AuthRequest):
     user_id = verify_user(req.email, req.password)
     return {"user_id": user_id}
 
-@app.post("/chat")
-async def chat(req: ChatRequest):
-    run = trace(
-        name="NexChat Request",
-        metadata={"thread_id": req.thread_id},
-        tags=[f"thread:{req.thread_id}"],
-        inputs={"message": req.message},
-    )
-    run.__enter__()
 
-    def generate():
-        full_response = ""
-        try:
-            for chunk, metadata in stream_chatbot(
-                {"messages": [HumanMessage(content=req.message)]},
-                config={"configurable": {"thread_id": req.thread_id}},
-                thread_id=req.thread_id,
-            ):
-                token = getattr(chunk, "content", "")
-                if token:
-                    full_response += token
-                    yield json.dumps({"token": token}) + "\n"
-
-            run.outputs = {"response": full_response}  # set outputs directly
-            run.__exit__(None, None, None)             # this submits the trace
-            yield json.dumps({"done": True}) + "\n"
-
-        except Exception as exc:
-            run.__exit__(type(exc), exc, exc.__traceback__)
-            yield json.dumps({"done": True, "error": str(exc)}) + "\n"
-
-    return StreamingResponse(
-    generate(),
-    media_type="application/x-ndjson",
-    headers={
-        "X-Accel-Buffering": "no",
-        "Cache-Control": "no-cache",
-    },
-)
 @app.get("/chat-history/{thread_id}")
 def chat_history(thread_id: str):
     state = get_chatbot_state(config={"configurable": {"thread_id": thread_id}})

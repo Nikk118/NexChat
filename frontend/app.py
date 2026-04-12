@@ -298,26 +298,18 @@ if user_input:
                 timeout=60,
             ) as response:
                 if response.status_code == 200:
-                    first_token = True
-                    for raw_line in response.iter_lines():
-                        if not raw_line:
+                    for chunk in response.iter_content(chunk_size=1024):
+                        if not chunk:
                             continue
-                        try:
-                            chunk = json.loads(raw_line)
-                        except Exception:
-                            continue
-                        if chunk.get("done"):
-                            break
-                        token = chunk.get("token", "")
-                        if token:
-                            if first_token:
-                                first_token = False
-                            ai_message += token
-                            placeholder.markdown(ai_message + "▌")
+
+                        decoded = chunk.decode("utf-8")
+                        ai_message += decoded
+                        placeholder.markdown(ai_message + "▌")
+
                     if ai_message:
                         placeholder.markdown(ai_message)
                     else:
-                        placeholder.markdown("❌ No response received — backend returned empty stream")
+                        placeholder.markdown("❌ No response received")
                         ai_message = "No response received"
                 else:
                     placeholder.markdown(f"❌ API Error: {response.status_code}")

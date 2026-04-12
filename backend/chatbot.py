@@ -20,10 +20,12 @@ from db import get_db_uri
 
 load_dotenv()
 
+# ✅ ENABLE STREAMING
 llm = ChatMistralAI(
     model="mistral-small",
     temperature=0.7,
-    api_key=os.getenv("MISTRAL_API_KEY")
+    api_key=os.getenv("MISTRAL_API_KEY"),
+    streaming=True
 ).with_config({
     "run_name": "LLM model",
     "metadata": {
@@ -37,10 +39,10 @@ class chatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 
-# NODE
+# NODE (keep simple)
 def chat_node(state: chatState) -> chatState:
     messages = state["messages"]
-    response = llm.invoke(messages)
+    response = llm.invoke(messages)  # LangGraph handles stream separately
     return {"messages": [response]}
 
 
@@ -70,7 +72,6 @@ def _close_checkpoint():
             _checkpoint_ctx.__exit__(None, None, None)
         except Exception:
             pass
-        _checkpoint_ctx = None
 
 
 def _ensure_chatbot():
