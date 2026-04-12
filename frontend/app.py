@@ -254,7 +254,6 @@ for message in st.session_state["message_history"]:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-
 # CHAT INPUT
 user_input = st.chat_input("Type here")
 
@@ -289,6 +288,7 @@ if user_input:
     with st.chat_message("assistant"):
         ai_message = ""
         placeholder = st.empty()
+        placeholder.markdown("⠋ _Thinking..._")
 
         try:
             with requests.post(
@@ -298,6 +298,7 @@ if user_input:
                 timeout=60,
             ) as response:
                 if response.status_code == 200:
+                    first_token = True
                     for raw_line in response.iter_lines():
                         if not raw_line:
                             continue
@@ -309,15 +310,22 @@ if user_input:
                             break
                         token = chunk.get("token", "")
                         if token:
+                            if first_token:
+                                first_token = False
                             ai_message += token
                             placeholder.markdown(ai_message + "▌")
-                    placeholder.markdown(ai_message)
+                    if ai_message:
+                        placeholder.markdown(ai_message)
+                    else:
+                        placeholder.markdown("❌ No response received — backend returned empty stream")
+                        ai_message = "No response received"
                 else:
-                    st.error(f"API Error: {response.status_code}")
+                    placeholder.markdown(f"❌ API Error: {response.status_code}")
+                    st.error(response.text)
                     ai_message = "Backend error"
         except Exception as e:
+            placeholder.markdown("❌ Something went wrong")
             st.error(f"Stream error: {e}")
             ai_message = "Stream error"
-
     st.session_state["message_history"].append({"role": "assistant", "content": ai_message})
     save_local_history(st.session_state["thread_id"])

@@ -89,7 +89,14 @@ async def chat(req: ChatRequest):
             run.__exit__(type(exc), exc, exc.__traceback__)
             yield json.dumps({"done": True, "error": str(exc)}) + "\n"
 
-    return StreamingResponse(generate(), media_type="application/x-ndjson")
+    return StreamingResponse(
+    generate(),
+    media_type="application/x-ndjson",
+    headers={
+        "X-Accel-Buffering": "no",
+        "Cache-Control": "no-cache",
+    },
+)
 @app.get("/chat-history/{thread_id}")
 def chat_history(thread_id: str):
     state = get_chatbot_state(config={"configurable": {"thread_id": thread_id}})
