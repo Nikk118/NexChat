@@ -6,8 +6,8 @@ import streamlit as st
 
 
 # CONFIG
-# BACKEND_URL = "https://nexchat-backend-6j4o.onrender.com"
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = "https://nexchat-backend-6j4o.onrender.com"
+# BACKEND_URL = "http://localhost:8000"
 
 
 # UTILS
