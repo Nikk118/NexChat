@@ -2,6 +2,7 @@ fastapi==0.135.3
 uvicorn==0.44.0
 langchain==1.2.15
 langchain-core==1.2.26
+langchain_community
 langgraph==1.1.6
 langgraph-checkpoint-postgres==3.0.5
 langchain-huggingface==1.2.1

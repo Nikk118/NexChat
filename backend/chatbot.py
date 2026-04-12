@@ -9,7 +9,9 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain_mistralai import ChatMistralAI
-
+from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_core.tools import tool
+from langgraph.prebuilt import ToolNode,tools_condition
 # Handle import (version compatibility)
 try:
     from langgraph.checkpoint.postgres import PostgresSaver
@@ -33,6 +35,42 @@ llm = ChatMistralAI(
     }
 })
 
+@tool
+def calculator(expression: str) -> str:
+    """Use this for math calculations like 2+2, 5*10, etc."""
+    try:
+        return str(eval(expression))
+    except:
+        return "Invalid expression"
+
+
+    
+search=DuckDuckGoSearchRun()
+
+@tool
+def duckduckgo_search(query: str) -> str:
+    """Use this for real-time information, news, or unknown facts."""
+    return search.run(query)
+
+@tool
+def weather(city: str) -> str:
+    """Use this tool to get current weather or temperature of any city."""
+    try:
+        query = f"current temperature in {city}"
+        print(f"🌦️ Weather tool called: {query}")
+
+        result = search.run(query)
+        return result
+
+    except Exception as e:
+        return "Unable to fetch weather right now"
+
+tools=[calculator,duckduckgo_search,weather]
+
+llm=llm.bind_tools(tools)
+
+tool_node=ToolNode(tools)
+
 
 # STATE
 class chatState(TypedDict):
@@ -43,14 +81,27 @@ class chatState(TypedDict):
 def chat_node(state: chatState) -> chatState:
     messages = state["messages"]
     response = llm.invoke(messages)  # LangGraph handles stream separately
+    if hasattr(response, "tool_calls") and response.tool_calls:
+        print("🛠️ Tool used:")
+        for tool in response.tool_calls:
+            print(f"Tool Name: {tool['name']}")
+            print(f"Arguments: {tool['args']}")
+    else:
+        print("💬 No tool used")
+    # print(response)
     return {"messages": [response]}
 
 
 # GRAPH
 graph = StateGraph(chatState)
 graph.add_node("chat_node", chat_node)
+graph.add_node("tools",tool_node)
 graph.add_edge(START, "chat_node")
-graph.add_edge("chat_node", END)
+graph.add_conditional_edges("chat_node",tools_condition,{
+    "tools":"tools",
+    "__end__":END
+})
+graph.add_edge("tools","chat_node")
 
 _chatbot_lock = threading.Lock()
 _checkpoint_ctx = None
