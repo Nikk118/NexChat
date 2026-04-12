@@ -5,10 +5,10 @@ from typing import TypedDict, Annotated
 from importlib import import_module
 from langsmith import traceable
 import psycopg
-from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
 from langchain_core.messages import BaseMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from langchain_mistralai import ChatMistralAI
 
 # Handle import (version compatibility)
 try:
@@ -20,16 +20,14 @@ from db import get_db_uri
 
 load_dotenv()
 
-llm = HuggingFaceEndpoint(
-    repo_id="meta-llama/Llama-3.1-8B-Instruct",
+llm = ChatMistralAI(
+    model="mistral-small",
     temperature=0.7,
-    max_new_tokens=512,
-)
-
-llm = ChatHuggingFace(llm=llm).with_config({
-    "run_name":"LLm model",
-    "metadata":{
-        "model":"llma-3.1-8B-instruct"
+    api_key=os.getenv("MISTRAL_API_KEY")
+).with_config({
+    "run_name": "LLM model",
+    "metadata": {
+        "model": "mistral-small"
     }
 })
 
@@ -71,7 +69,6 @@ def _close_checkpoint():
         try:
             _checkpoint_ctx.__exit__(None, None, None)
         except Exception:
-            # Swallow close failures because reconnect path should keep serving traffic.
             pass
         _checkpoint_ctx = None
 
@@ -99,13 +96,19 @@ def _is_psycopg_error(exc: Exception) -> bool:
         current = current.__cause__ or current.__context__
     return False
 
+
 @traceable(name="NexChat Request")
-def invoke_chatbot(payload, config,thread_id: str, retries: int = 1):
+def stream_chatbot(payload, config, thread_id: str, retries: int = 1):
     for attempt in range(retries + 1):
         bot = _ensure_chatbot()
         try:
-            return bot.invoke(payload,
-                config=config)
+            for chunk, metadata in bot.stream(
+                payload,
+                config=config,
+                stream_mode="messages",
+            ):
+                yield chunk, metadata
+            return
         except Exception as exc:
             if attempt < retries and _is_psycopg_error(exc):
                 _reset_chatbot()

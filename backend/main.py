@@ -1,12 +1,15 @@
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from chatbot import invoke_chatbot, get_chatbot_state
+from chatbot import get_chatbot_state, stream_chatbot
 from langchain_core.messages import HumanMessage
 from fastapi.middleware.cors import CORSMiddleware
 from auth import create_user, verify_user
 from db import get_chats, create_chat as db_create_chat, update_title
 from fastapi import Request
 from langsmith.run_helpers import trace
+import json
+
 app = FastAPI()
 
 # CORS
@@ -55,29 +58,38 @@ def login(req: AuthRequest):
     user_id = verify_user(req.email, req.password)
     return {"user_id": user_id}
 
-
 @app.post("/chat")
-def chat(req: ChatRequest):
-
-    with trace(
+async def chat(req: ChatRequest):
+    run = trace(
         name="NexChat Request",
         metadata={"thread_id": req.thread_id},
         tags=[f"thread:{req.thread_id}"],
         inputs={"message": req.message},
-    ) as run:
-        result = invoke_chatbot(
-            {"messages": [HumanMessage(content=req.message)]},
-            config={
-                "configurable": {"thread_id": req.thread_id},
-                "run_name": "chat_turn",
-            },
-            thread_id=req.thread_id,
-        )
+    )
+    run.__enter__()
 
-        output = result["messages"][-1].content
-        run.end(outputs={"response": output})
-    return {"response": output}
+    def generate():
+        full_response = ""
+        try:
+            for chunk, metadata in stream_chatbot(
+                {"messages": [HumanMessage(content=req.message)]},
+                config={"configurable": {"thread_id": req.thread_id}},
+                thread_id=req.thread_id,
+            ):
+                token = getattr(chunk, "content", "")
+                if token:
+                    full_response += token
+                    yield json.dumps({"token": token}) + "\n"
 
+            run.outputs = {"response": full_response}  # set outputs directly
+            run.__exit__(None, None, None)             # this submits the trace
+            yield json.dumps({"done": True}) + "\n"
+
+        except Exception as exc:
+            run.__exit__(type(exc), exc, exc.__traceback__)
+            yield json.dumps({"done": True, "error": str(exc)}) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 @app.get("/chat-history/{thread_id}")
 def chat_history(thread_id: str):
     state = get_chatbot_state(config={"configurable": {"thread_id": thread_id}})
@@ -88,13 +100,11 @@ def chat_history(thread_id: str):
     for msg in messages:
         msg_type = getattr(msg, "type", "")
 
-        # FIX: skip non-conversational messages (tool calls, system, etc.)
         if msg_type not in ("human", "ai"):
             continue
 
         content = getattr(msg, "content", "")
 
-        # FIX: handle list content (e.g. multi-part AI messages with tool use blocks)
         if isinstance(content, list):
             content = " ".join(
                 part.get("text", "") for part in content if isinstance(part, dict)
@@ -102,7 +112,6 @@ def chat_history(thread_id: str):
         elif not isinstance(content, str):
             content = str(content)
 
-        # FIX: skip messages that have no meaningful text (e.g. tool-call-only AI turns)
         if not content.strip():
             continue
 
@@ -119,7 +128,6 @@ def chats(user_id: str):
 
 @app.post("/create-chat")
 def create_chat_api(req: CreateChatRequest):
-    # FIX: renamed import to db_create_chat to avoid name collision
     db_create_chat(req.thread_id, req.user_id)
     return {"status": "ok"}
 

@@ -1,3 +1,4 @@
+import json
 import uuid
 
 import requests
@@ -5,8 +6,8 @@ import streamlit as st
 
 
 # CONFIG
-BACKEND_URL = "https://nexchat-backend-6j4o.onrender.com"
-# BACKEND_URL = "http://localhost:8000"
+# BACKEND_URL = "https://nexchat-backend-6j4o.onrender.com"
+BACKEND_URL = "http://localhost:8000"
 
 
 # UTILS
@@ -286,26 +287,37 @@ if user_input:
         st.markdown(user_input)
 
     with st.chat_message("assistant"):
-        response = requests.post(
-            f"{BACKEND_URL}/chat",
-            json={"message": user_input, "thread_id": st.session_state["thread_id"]},
-            timeout=60,
-        )
+        ai_message = ""
+        placeholder = st.empty()
 
-        if response.status_code == 200:
-            try:
-                data = response.json()
-                ai_message = data.get("response", "")
-            except Exception as e:
-                st.error(f"JSON error: {e}")
-                st.text(response.text)
-                ai_message = "Error parsing response"
-        else:
-            st.error(f"API Error: {response.status_code}")
-            st.text(response.text)
-            ai_message = "Backend error"
-
-        st.markdown(ai_message)
+        try:
+            with requests.post(
+                f"{BACKEND_URL}/chat",
+                json={"message": user_input, "thread_id": st.session_state["thread_id"]},
+                stream=True,
+                timeout=60,
+            ) as response:
+                if response.status_code == 200:
+                    for raw_line in response.iter_lines():
+                        if not raw_line:
+                            continue
+                        try:
+                            chunk = json.loads(raw_line)
+                        except Exception:
+                            continue
+                        if chunk.get("done"):
+                            break
+                        token = chunk.get("token", "")
+                        if token:
+                            ai_message += token
+                            placeholder.markdown(ai_message + "▌")
+                    placeholder.markdown(ai_message)
+                else:
+                    st.error(f"API Error: {response.status_code}")
+                    ai_message = "Backend error"
+        except Exception as e:
+            st.error(f"Stream error: {e}")
+            ai_message = "Stream error"
 
     st.session_state["message_history"].append({"role": "assistant", "content": ai_message})
     save_local_history(st.session_state["thread_id"])
