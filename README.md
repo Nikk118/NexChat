@@ -1,4 +1,4 @@
-# 🧠 EchoMind
+# 🧠 NexChat
 
 **EchoMind** is a full-stack AI chatbot with persistent memory, authentication, and conversation management.
 Built using **LangGraph, FastAPI, PostgreSQL, and Streamlit**, it delivers a stateful AI experience similar to modern AI assistants.
